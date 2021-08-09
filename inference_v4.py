@@ -2,6 +2,9 @@ import pprint
 import argparse
 import os
 
+import ffmpy
+from ffmpy import FFmpeg
+
 import cv2
 import librosa
 import numpy as np
@@ -168,13 +171,12 @@ data = {
     'stackPasses': 0,
     'stackOnly': False,
     'saveAllStacked': False,
-    # Model Folder
-    'modelFolder': False,
     # Constants
     'sr': 44_100,
     'hop_length': 1_024,
-    'window_size': 320,
+    'window_size': 512,
     'n_fft': 2_048,
+    'modelFN': False,
 }
 default_sr = data['sr']
 default_hop_length = data['hop_length']
@@ -263,13 +265,18 @@ def determineModelFolderName():
 
     # -Instrumental-
     if os.path.isfile(data['instrumentalModel']):
-        modelFolderName += os.path.splitext(os.path.basename(data['instrumentalModel']))[0]
+        modelFolderName += os.path.splitext(os.path.basename(data['instrumentalModel']))[0] + '-'
     # -Vocal-
     elif os.path.isfile(data['vocalModel']):
-        modelFolderName += os.path.splitext(os.path.basename(data['vocalModel']))[0]
+        modelFolderName += os.path.splitext(os.path.basename(data['vocalModel']))[0] + '-'
     # -Stack-
     if os.path.isfile(data['stackModel']):
-        modelFolderName += '-' + os.path.splitext(os.path.basename(data['stackModel']))[0]
+        modelFolderName += os.path.splitext(os.path.basename(data['stackModel']))[0]
+    else:
+        modelFolderName = modelFolderName[:-1]
+
+    if modelFolderName:
+        modelFolderName = '/' + modelFolderName
 
     return modelFolderName
 
@@ -277,6 +284,15 @@ def determineModelFolderName():
 def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress_var: tk.Variable,
          **kwargs: dict):
     def save_files(wav_instrument, wav_vocals):
+        try:
+            modell_name = "_("+(os.path.splitext(os.path.basename(data['instrumentalModel']))[0]).split('_')[0]+"_"+(os.path.splitext(os.path.basename(data['instrumentalModel']))[0]).split('_')[1]+")"
+        except IndexError:
+            modell_name = "_("+(os.path.splitext(os.path.basename(data['instrumentalModel']))[0]).split('_')[0]+")"
+        #since it could potentially get cleared (literally the next if statement) i need to copy it lol
+        moname=modell_name
+        if not data['modelFN']:
+            modell_name = ""
+        print(modell_name)
         """Save output music files"""
         vocal_name = None
         instrumental_name = None
@@ -325,6 +341,7 @@ def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress
             elif (data['useModel'] == 'vocal' or
                   data['useModel'] == 'instrumental'):
                 vocal_name = f'(Vocals_{loop_num}_Stacked_Output)'
+                print(loop_num)
                 instrumental_name = f'(Instrumental_{loop_num}_Stacked_Output)'
 
             if data['useModel'] == 'vocal':
@@ -338,21 +355,145 @@ def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress
         sf.write(f'temp.wav',
                  wav_instrument.T, sr)
 
+        appendModelFolderName = modelFolderName.replace('/', '_')
+        #Check if BVKaraoke model selected (WOAH DYNAMICNESS)
+        itsbv=0
+        output_codec=data['codec']
+        output_bitrate=data['bitrate']
+        output_container=output_codec
+        if output_container=='opus':
+            output_container='ogg'
+        if output_container=='vorbis':
+            output_container='ogg'
+        if output_container=='aac':
+            output_container='m4a'
+        if output_container=='ac3':
+            output_container='m4a'
+        print(output_codec)
+        print(output_container)
+        if "BV" in moname:
+            itsbv=1
+            vocal_name=vocal_name.replace('(Vocals)','(Lead Vocals)')
+            
+            othervocal=0
+            #so i dont have to copy this behemoth for each yanderedev statement
+            namelower=os.path.basename(base_name).lower().replace(" ","").replace("-","")
+            
+            #check for common things in acapella file names
+            if "acapella" in namelower: #also matches a capella
+                othervocal=1
+            if "vocalsonly" in namelower:
+                othervocal=1
+            if "vocalonly" in namelower:
+                othervocal=1
+            if "onlyvocal" in namelower:
+                othervocal=1
+            if "vocal" in namelower: #yes this is redundant on so many levels both before and after this one but fungus chungus
+                othervocal=1
+            if "onvocal" in namelower: #this is what the japanese call the normal song as opposed to an off vocal, this is antiredundant
+                othervocal=0
+            if "acapela" in namelower: #some people just cant spell
+                othervocal=0
+                
+            if "(Vocals)" in os.path.basename(base_name) or othervocal==1:
+                #if you chose a file that is separated vocals then this is how it knows you meant to separate backing vocals
+                instrumental_name=instrumental_name.replace('(Instrumental)','(Backing Vocals)')
+            else:
+                instrumental_name=instrumental_name.replace('(Instrumental)','(Instrumental w Backing)')
         # -Save files-
         # Instrumental
         if instrumental_name is not None:
-            instrumental_path = os.path.join(save_path,
-                                             f'{os.path.basename(base_name)}_{instrumental_name}_{modelFolderName}.wav')
+            instrumental_path = '{save_path}/{file_name}.wav'.format(
+                save_path=save_path,
+                file_name=f'{os.path.basename(base_name)}{modell_name}_{instrumental_name}{appendModelFolderName}',
+            )
+            if itsbv==1:
+                instrumental_path = '{save_path}/{file_name}.wav'.format(
+                    save_path=save_path,
+                    file_name=f'{os.path.basename(base_name)}{modell_name}_{instrumental_name}{appendModelFolderName}'.replace("_(Vocals)", ""),
+                )
+            instrumental_path2 = '{save_path}/{file_name}.{ext}'.format(
+                save_path=save_path,
+                file_name=f'{os.path.basename(base_name)}{modell_name}_{instrumental_name}{appendModelFolderName}',
+                ext=output_container,
+            )
+            if itsbv==1:
+                instrumental_path2 = '{save_path}/{file_name}.{ext}'.format(
+                    save_path=save_path,
+                    file_name=f'{os.path.basename(base_name)}{modell_name}_{instrumental_name}{appendModelFolderName}'.replace("_(Vocals)", ""),
+                    ext=output_container,
+                )
 
             sf.write(instrumental_path,
                      wav_instrument.T, sr)
+            if output_codec is not "wav":
+                if output_codec=="flac":
+                    print("its flac")
+                    print(output_codec)
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-compression_level 8 -sample_fmt s16 -y'})
+                if output_codec=="mp3":
+                    print("its mp3")
+                    print(output_codec)
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="aac":
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-c:a aac -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="ac3":
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-c:a ac3 -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="wma":
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="vorbis":
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-c:a libvorbis -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="opus":
+                    ff = ffmpy.FFmpeg(inputs={instrumental_path: None}, outputs={instrumental_path2: '-c:a libopus -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                ff.run()
+                os.remove(instrumental_path)
         # Vocal
         if vocal_name is not None:
-            vocal_path = os.path.join(save_path,
-                                      f'{os.path.basename(base_name)}_{vocal_name}_{modelFolderName}.wav')
+            vocal_path = '{save_path}/{file_name}.wav'.format(
+                save_path=save_path,
+                file_name=f'{os.path.basename(base_name)}{modell_name}_{vocal_name}{appendModelFolderName}'
+            )
+            if itsbv==1: #Don't want it removing "(Vocals)" in a regular file
+                vocal_path = '{save_path}/{file_name}.wav'.format(
+                    save_path=save_path,
+                    file_name=f'{os.path.basename(base_name)}{modell_name}_{vocal_name}{appendModelFolderName}'.replace("_(Vocals)", ""),
+                    #Replace is here because it shortens the filename and "01. Funny Song_(Shart_Model)_*(Vocals)*_(MODEL_BVKARAOKE)_*(Lead Vocals)*.flac" would be weird
+                )
+            vocal_path2 = '{save_path}/{file_name}.{ext}'.format(
+                save_path=save_path,
+                file_name=f'{os.path.basename(base_name)}{modell_name}_{vocal_name}{appendModelFolderName}',
+                ext=output_container,
+            )
+            if itsbv==1: #Don't want it removing "(Vocals)" in a regular file
+                vocal_path2 = '{save_path}/{file_name}.{ext}'.format(
+                    save_path=save_path,
+                    file_name=f'{os.path.basename(base_name)}{modell_name}_{vocal_name}{appendModelFolderName}'.replace("_(Vocals)", ""),
+                    ext=output_container,
+                    #Replace is here because it shortens the filename and "01. Funny Song_(Shart_Model)_*(Vocals)*_(MODEL_BVKARAOKE)_*(Lead Vocals)*.flac" would be weird
+                )
             sf.write(vocal_path,
                      wav_vocals.T, sr)
-
+            if output_container is not "wav":
+                if output_codec=="flac":
+                    print("its flac")
+                    print(output_codec)
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-compression_level 8 -sample_fmt s16 -y'})
+                if output_codec=="mp3":
+                    print("its mp3")
+                    print(output_codec)
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="aac":
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-c:a aac -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="ac3":
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-c:a ac3 -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="wma":
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="vorbis":
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-c:a libvorbis -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                if output_codec=="opus":
+                    ff = ffmpy.FFmpeg(inputs={vocal_path: None}, outputs={vocal_path2: '-c:a libopus -b:a {bitrarte}K -y'.format(bitrarte=output_bitrate)})
+                ff.run()
+                os.remove(vocal_path)
     data.update(kwargs)
 
     # Update default settings
@@ -373,7 +514,7 @@ def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress
     vocal_remover = VocalRemover(data, text_widget)
     modelFolderName = determineModelFolderName()
     if modelFolderName:
-        folder_path = os.path.join(data["export_path"], modelFolderName)
+        folder_path = f'{data["export_path"]}{modelFolderName}'
         if not os.path.isdir(folder_path):
             os.mkdir(folder_path)
 
@@ -384,7 +525,8 @@ def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress
     for file_num, music_file in enumerate(data['input_paths'], start=1):
         try:
             # Determine File Name
-            base_name = os.path.join(folder_path, f'{file_num}_{os.path.splitext(os.path.basename(music_file))[0]}')
+            #base_name = f'{data["export_path"]}{modelFolderName}/{file_num}_{os.path.splitext(os.path.basename(music_file))[0]}'
+            base_name = f'{data["export_path"]}{modelFolderName}/{os.path.splitext(os.path.basename(music_file))[0]}'
 
             # --Seperate Music Files--
             for loop_num in range(total_loops):
@@ -510,5 +652,4 @@ def main(window: tk.Wm, text_widget: tk.Text, button_widget: tk.Button, progress
     progress_var.set(0)
     text_widget.write(f'Conversion(s) Completed and Saving all Files!\n')
     text_widget.write(f'Time Elapsed: {time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - stime)))}')  # nopep8
-    torch.cuda.empty_cache()
     button_widget.configure(state=tk.NORMAL)  # Enable Button

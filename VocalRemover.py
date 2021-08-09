@@ -16,7 +16,6 @@ import subprocess  # Run python file
 import pathlib
 import sys
 import os
-import subprocess
 from collections import defaultdict
 # Used for live text displaying
 import queue
@@ -36,34 +35,34 @@ else:
     base_path = os.path.dirname(os.path.abspath(__file__))
 os.chdir(base_path)  # Change the current working directory to the base path
 
-image_foler = 'img'
 instrumentalModels_dir = os.path.join(base_path, 'models')
 stackedModels_dir = os.path.join(base_path, 'models')
-banner_path = os.path.join(base_path, image_foler, 'UVR-banner.png')
-refresh_path = os.path.join(base_path, image_foler, 'refresh.png')
-icon_path = os.path.join(base_path, image_foler, 'UVR-icon.ico')
+logo_path = os.path.join(base_path, 'img', 'UVR-banner.png')
+refresh_path = os.path.join(base_path, 'img', 'refresh.png')
 DEFAULT_DATA = {
-    'exportPath': '',
-    'inputPaths': [],
+    'export_path': '',
     'gpu': False,
     'postprocess': False,
     'tta': False,
     'output_image': False,
     'sr': 44100,
     'hop_length': 1024,
-    'window_size': 320,
+    'window_size': 512,
     'n_fft': 2048,
     'stack': False,
     'stackPasses': 1,
     'stackOnly': False,
     'saveAllStacked': False,
     'modelFolder': False,
-    'modelInstrumentalLabel': '',
-    'modelStackedLabel': '',
     'aiModel': 'v4',
 
     'useModel': 'instrumental',
     'lastDir': None,
+    'modelFN': False,
+    'codec': "flac",
+    'bitrate': 192,
+    'monomode': False,
+    'keepwav': False,
 }
 
 
@@ -191,12 +190,12 @@ def drop(event, accept_mode: str = 'files'):
         root.exportPath_var.set(path)
     elif accept_mode == 'files':
         # Clean path text and set path to the list of paths
+        path = path[:-1]
         path = path.replace('{', '')
         path = path.split('} ')
-        path[-1] = path[-1].replace('}', '')
         # Set Variables
         root.inputPaths = path
-        root.update_inputPaths()
+        root.inputPathsEntry_var.set('; '.join(path))
     else:
         # Invalid accept mode
         return
@@ -240,14 +239,15 @@ class MainWindow(TkinterDnD.Tk):
     # Layout
     IMAGE_HEIGHT = 140
     FILEPATHS_HEIGHT = 90
-    OPTIONS_HEIGHT = 240
+    OPTIONS_HEIGHT = 320
     CONVERSIONBUTTON_HEIGHT = 35
     COMMAND_HEIGHT = 200
     PROGRESS_HEIGHT = 26
     PADDING = 10
+    bitrates=[6,8,12,16,20,24,28,32,36,40,48,56,64,72,80,96,108,128,144,160,192,216,224,240,256,272,300,320,360,400,420,444,480,512]
 
-    COL1_ROWS = 8
-    COL2_ROWS = 7
+    COL1_ROWS = 11
+    COL2_ROWS = 9
     COL3_ROWS = 5
 
     def __init__(self):
@@ -268,12 +268,11 @@ class MainWindow(TkinterDnD.Tk):
             ypad=int(self.winfo_screenheight()/2 - height/2 - 30)))
         self.configure(bg='#000000')  # Set background color to black
         self.protocol("WM_DELETE_WINDOW", self.save_values)
-        self.iconbitmap(icon_path)
         self.resizable(False, False)
         self.update()
 
         # --Variables--
-        self.logo_img = open_image(path=banner_path,
+        self.logo_img = open_image(path=logo_path,
                                    size=(self.winfo_width(), 9999))
         self.refresh_img = open_image(path=refresh_path,
                                       size=(20, 20))
@@ -284,16 +283,36 @@ class MainWindow(TkinterDnD.Tk):
         # -Tkinter Value Holders-
         data = load_data()
         # Paths
-        self.exportPath_var = tk.StringVar(value=data['exportPath'])
-        self.inputPaths = data['inputPaths']
+        self.exportPath_var = tk.StringVar(value=data['export_path'])
+        self.inputPaths = []
         # Processing Options
         self.gpuConversion_var = tk.BooleanVar(value=data['gpu'])
         self.postprocessing_var = tk.BooleanVar(value=data['postprocess'])
         self.tta_var = tk.BooleanVar(value=data['tta'])
         self.outputImage_var = tk.BooleanVar(value=data['output_image'])
+        try:
+            self.modelfn_var = tk.BooleanVar(value=data['modelFN'])
+        except KeyError:
+            self.modelfn_var = tk.BooleanVar(value=False)
+        try:
+            self.codec_var = tk.StringVar(value=data['codec'])
+        except KeyError:
+            self.codec_var = tk.StringVar(value='flac')
+        try:
+            self.bitrate_var = tk.IntVar(value=data['bitrate'])
+        except KeyError:
+            self.bitrate_var = tk.IntVar(value=192)
+        try:
+            self.monomode_var = tk.BooleanVar(value=data['monomode'])
+        except KeyError:
+            self.monomode_var = tk.BooleanVar(value=False)
+        try:
+            self.keepwav_var = tk.BooleanVar(value=data['keepwav'])
+        except KeyError:
+            self.keepwav_var = tk.BooleanVar(value=False)
         # Models
-        self.instrumentalModel_var = tk.StringVar(value=data['modelInstrumentalLabel'])
-        self.stackedModel_var = tk.StringVar(value=data['modelStackedLabel'])
+        self.instrumentalModel_var = tk.StringVar(value='')
+        self.stackedModel_var = tk.StringVar(value='')
         # Stacked Options
         self.stack_var = tk.BooleanVar(value=data['stack'])
         self.stackLoops_var = tk.StringVar(value=data['stackPasses'])
@@ -421,16 +440,22 @@ class MainWindow(TkinterDnD.Tk):
                                               relx=0, rely=0.5, relwidth=0.4, relheight=0.5)
         self.filePaths_musicFile_Entry.place(x=10, y=7, width=-20, height=-14,
                                              relx=0.4, rely=0.5, relwidth=0.6, relheight=0.5)
-
+    def bitsnap(self,value):
+        value2=min(self.bitrates, key=lambda x:abs(x-float(value)))
+        self.options_bitrate_Slider.set(value2)
     def fill_options_Frame(self):
         """Fill Frame with neccessary widgets"""
         # -Create Widgets-
         # -Column 1-
+        
+       
+        
         # GPU Selection
         self.options_gpu_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
                                                        text='GPU Conversion',
                                                        variable=self.gpuConversion_var,
                                                        )
+                                                       
         # Postprocessing
         self.options_post_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
                                                         text='Post-Process',
@@ -446,6 +471,41 @@ class MainWindow(TkinterDnD.Tk):
                                                          text='Output Image',
                                                          variable=self.outputImage_var,
                                                          )
+        # Model name in output
+        self.options_modelfn_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
+                                                         text='Model in Filename',
+                                                         variable=self.modelfn_var,
+                                                         )
+                                                         
+         # Mono mixdown
+        self.options_mono_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
+                                                       text='Mono Mixdown',
+                                                       variable=self.monomode_var,
+                                                       )
+        # fdkhgsdfhsfjhsfgkjfhk
+        self.options_wav_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
+                                                       text='Keep WAV',
+                                                       variable=self.keepwav_var,
+                                                       )
+        # Codec
+        self.options_codec_Label = tk.Label(master=self.options_Frame,
+                                              text='Codec', anchor=tk.CENTER,
+                                              background='#63605f', font=self.font, foreground='white', relief="sunken")
+        self.options_codec_Optionmenu = ttk.OptionMenu(self.options_Frame,
+                                                         self.codec_var,
+                                                         None, 'wav', 'flac','mp3','aac','ac3','vorbis','opus','wma')
+                                                         
+        #Bitrate
+        self.options_bitrate_Label = tk.Label(master=self.options_Frame,
+                                              text='Bitrate', anchor=tk.CENTER,
+                                              background='#63605f', font=self.font, foreground='white', relief="sunken")
+        self.options_bitrate_Slider = tk.Scale(master=self.options_Frame,
+                                                        variable=self.bitrate_var,
+                                                        from_=min(self.bitrates),
+                                                        to=max(self.bitrates), 
+                                                        command=self.bitsnap,
+                                                        orient=tk.HORIZONTAL,
+                                                        )
         # Stack Loops
         self.options_stack_Checkbutton = ttk.Checkbutton(master=self.options_Frame,
                                                          text='Stack Passes',
@@ -494,7 +554,7 @@ class MainWindow(TkinterDnD.Tk):
                                            background='#63605f', font=self.font, foreground='white', relief="sunken")
         # AI model
         self.options_aiModel_Label = tk.Label(master=self.options_Frame,
-                                              text='Choose AI Engine', anchor=tk.CENTER,
+                                              text='AI Version', anchor=tk.CENTER,
                                               background='#63605f', font=self.font, foreground='white', relief="sunken")
         self.options_aiModel_Optionmenu = ttk.OptionMenu(self.options_Frame,
                                                          self.aiModel_var,
@@ -530,18 +590,24 @@ class MainWindow(TkinterDnD.Tk):
                                            relx=0, rely=2/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
         self.options_image_Checkbutton.place(x=0, y=0, width=0, height=0,
                                              relx=0, rely=3/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+        self.options_modelfn_Checkbutton.place(x=0, y=0, width=0, height=0,
+                                             relx=0, rely=4/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+        self.options_wav_Checkbutton.place(x=0, y=0, width=0, height=0,
+                                             relx=0, rely=5/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+        self.options_mono_Checkbutton.place(x=0, y=0, width=0, height=0,
+                                             relx=0, rely=6/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
         # Stacks
         self.options_stack_Checkbutton.place(x=0, y=0, width=0, height=0,
-                                             relx=0, rely=4/self.COL1_ROWS, relwidth=1/3/4*3, relheight=1/self.COL1_ROWS)
+                                             relx=0, rely=7/self.COL1_ROWS, relwidth=1/3/4*3, relheight=1/self.COL1_ROWS)
         self.options_stack_Entry.place(x=0, y=3, width=0, height=-6,
-                                       relx=1/3/4*2.4, rely=4/self.COL1_ROWS, relwidth=1/3/4*0.9, relheight=1/self.COL1_ROWS)
+                                       relx=1/3/4*2.4, rely=7/self.COL1_ROWS, relwidth=1/3/4*0.9, relheight=1/self.COL1_ROWS)
         self.options_stackOnly_Checkbutton.place(x=0, y=0, width=0, height=0,
-                                                 relx=0, rely=5/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+                                                 relx=0, rely=8/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
         self.options_saveStack_Checkbutton.place(x=0, y=0, width=0, height=0,
-                                                 relx=0, rely=6/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+                                                 relx=0, rely=9/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
         # Model Folder
         self.options_modelFolder_Checkbutton.place(x=0, y=0, width=0, height=0,
-                                                   relx=0, rely=7/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
+                                                   relx=0, rely=10/self.COL1_ROWS, relwidth=1/3, relheight=1/self.COL1_ROWS)
         # -Column 2-
         # SR
         self.options_sr_Label.place(x=5, y=4, width=5, height=-8,
@@ -564,10 +630,26 @@ class MainWindow(TkinterDnD.Tk):
         self.options_nfft_Entry.place(x=15, y=4, width=5, height=-8,
                                       relx=1/3 + 1/3/2, rely=3/self.COL2_ROWS, relwidth=1/3/4, relheight=1/self.COL2_ROWS)
         # AI model
-        self.options_aiModel_Label.place(x=5, y=-5, width=-30, height=-8,
-                                         relx=1/3, rely=5/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
-        self.options_aiModel_Optionmenu.place(x=5, y=-5, width=-30, height=-8,
+        self.options_aiModel_Label.place(x=5, y=4, width=5, height=-8,
+                                      relx=1/3, rely=4/self.COL2_ROWS, relwidth=1/3/2, relheight=1/self.COL2_ROWS)
+        self.options_aiModel_Optionmenu.place(x=15, y=4, width=5, height=-8,
+                                      relx=1/3 + 1/3/2, rely=4/self.COL2_ROWS, relwidth=1/3/4, relheight=1/self.COL2_ROWS)
+                                      
+        # Codec
+        self.options_codec_Label.place(x=5, y=4, width=5, height=-8,
+                                      relx=1/3, rely=5/self.COL2_ROWS, relwidth=1/3/2, relheight=1/self.COL2_ROWS)
+        self.options_codec_Optionmenu.place(x=15, y=4, width=5, height=-8,
+                                      relx=1/3 + 1/3/2, rely=5/self.COL2_ROWS, relwidth=1/3/4, relheight=1/self.COL2_ROWS)
+                                      
+        # Bitrate
+        #self.options_bitrate_Label.place(x=5, y=-5, width=-30, height=-8,
+        #                                      relx=1/3, rely=6/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
+        self.options_bitrate_Slider.place(x=5, y=4, width=-30, height=0,
                                               relx=1/3, rely=6/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
+        #self.options_aiModel_Label.place(x=5, y=-5, width=-30, height=-8,
+        #                                 relx=1/3, rely=5/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
+        #self.options_aiModel_Optionmenu.place(x=5, y=-5, width=-30, height=-8,
+        #                                      relx=1/3, rely=6/self.COL2_ROWS, relwidth=1/3, relheight=1/self.COL2_ROWS)
 
         # -Column 3-
         # Choose Model
@@ -611,7 +693,7 @@ class MainWindow(TkinterDnD.Tk):
         )
         if paths:  # Path selected
             self.inputPaths = paths
-            self.update_inputPaths()
+            self.inputPathsEntry_var.set('; '.join(paths))
             self.lastDir = os.path.dirname(paths[0])
 
     def open_export_filedialog(self):
@@ -624,13 +706,7 @@ class MainWindow(TkinterDnD.Tk):
 
     def open_newModel_filedialog(self):
         """Let user paste a ".pth" model to use for the vocal seperation"""
-        filename = 'models'
-
-        if sys.platform == "win32":
-            os.startfile(filename)
-        else:
-            opener = "open" if sys.platform == "darwin" else "xdg-open"
-            subprocess.call([opener, filename])
+        os.startfile('models')
 
     def start_conversion(self):
         """
@@ -655,6 +731,7 @@ class MainWindow(TkinterDnD.Tk):
                 hop_length = int(self.hopValue_var.get())
                 window_size = int(self.winSize_var.get())
                 n_fft = int(self.nfft_var.get())
+            modelfn = int(self.modelfn_var.get())
             stackPasses = int(self.stackLoops_var.get())
         except ValueError:  # Non integer was put in entry box
             tk.messagebox.showwarning(master=self,
@@ -733,6 +810,11 @@ class MainWindow(TkinterDnD.Tk):
                              'text_widget': self.command_Text,
                              'button_widget': self.conversion_Button,
                              'progress_var': self.progress_var,
+                             'modelFN': self.modelfn_var.get(),
+                             'codec': self.codec_var.get(),
+                             'bitrate': self.bitrate_var.get(),
+                             'monomode': self.monomode_var.get(),
+                             'keepwav': self.keepwav_var.get(),
                          },
                          daemon=True
                          ).start()
@@ -786,16 +868,6 @@ class MainWindow(TkinterDnD.Tk):
             if str(widget.cget('state')) != 'normal':
                 widget.configure(state=tk.NORMAL)
                 var.set(DEFAULT_DATA[key])
-
-    def update_inputPaths(self):
-        """Update the music file entry"""
-        if self.inputPaths:
-            # Non-empty Selection
-            text = '; '.join(self.inputPaths)
-        else:
-            # Empty Selection
-            text = ''
-        self.inputPathsEntry_var.set(text)
 
     def update_loop(self):
         """Update the dropdown menu"""
@@ -903,7 +975,6 @@ class MainWindow(TkinterDnD.Tk):
                                           relx=1/3 + 1/3/2, rely=3/self.COL2_ROWS, relwidth=1/3/4, relheight=1/self.COL2_ROWS)
 
         self.decode_modelNames()
-        self.update_inputPaths()
 
     def deselect_models(self):
         """
@@ -940,6 +1011,7 @@ class MainWindow(TkinterDnD.Tk):
         """
         Save the data of the application
         """
+        export_path = self.exportPath_var.get()
         # Get constants
         instrumental = get_model_values(self.instrumentalModel_var.get())
         stacked = get_model_values(self.stackedModel_var.get())
@@ -956,8 +1028,7 @@ class MainWindow(TkinterDnD.Tk):
 
         # -Save Data-
         save_data(data={
-            'exportPath': self.exportPath_var.get(),
-            'inputPaths': self.inputPaths,
+            'export_path': export_path,
             'gpu': self.gpuConversion_var.get(),
             'postprocess': self.postprocessing_var.get(),
             'tta': self.tta_var.get(),
@@ -973,9 +1044,12 @@ class MainWindow(TkinterDnD.Tk):
             'useModel': 'instrumental',
             'lastDir': self.lastDir,
             'modelFolder': self.modelFolder_var.get(),
-            'modelInstrumentalLabel': self.instrumentalModel_var.get(),
-            'modelStackedLabel': self.stackedModel_var.get(),
             'aiModel': self.aiModel_var.get(),
+            'modelFN': self.modelfn_var.get(),
+            'codec': self.codec_var.get(),
+            'bitrate': self.bitrate_var.get(),
+            'monomode': self.monomode_var.get(),
+            'keepwav': self.keepwav_var.get(),
         })
 
         self.destroy()
