@@ -2,7 +2,7 @@
 <img src="https://user-images.githubusercontent.com/29938499/128765572-cd8cd882-000d-43fb-8eb0-7711bdf6bb59.png" />
 
 [![Release](https://img.shields.io/github/release/FlashlightET/ultimatevocalremovergui.svg)](https://github.com/FlashlightET/ultimatevocalremovergui/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/FlashlightET/ultimatevocalremovergui/total.svg)](https://github.com/FlashlightET7/ultimatevocalremovergui/releases)
+[![Downloads](https://img.shields.io/github/downloads/FlashlightET/ultimatevocalremovergui/total.svg)](https://github.com/FlashlightET/ultimatevocalremovergui/releases)
 
 ## About
 
