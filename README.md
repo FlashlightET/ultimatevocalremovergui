@@ -185,6 +185,7 @@ A special thank you to aufr33 for helping me expand the dataset used to train so
   - **Note:** This application will *not* be friendly to older or budget hardware. Please proceed with caution! Pay attention to your PC and make sure it doesn't overheat. ***We are not responsible for any hardware damage.***
   - If using BVKaraoke model, it will change the filenames to match whether you're using a full mix or an acapella.
 ![image](https://user-images.githubusercontent.com/29938499/128769696-0ef513c1-2b8f-4082-b1c5-ac0e16af2826.png)
+![image](https://user-images.githubusercontent.com/29938499/128771777-2a1fdaad-718b-4746-a98e-f1287641c8b6.png)
 
 ## Troubleshooting
 
